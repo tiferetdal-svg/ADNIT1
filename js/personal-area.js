@@ -1,9 +1,8 @@
-// Smart Planter - Final Cloud Sync Version (Firebase Only)
+// Smart Planter - Final Version (Separate Cooldowns)
 import { database } from './firebase-config.js';
-// הוספתי את 'remove' לרשימת הייבוא כדי שנוכל למחוק מהענן
 import { ref, set, get, onValue, update, remove } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
-console.log('🌱 Smart Planter Script Loaded (Cloud Sync Mode)');
+console.log('🌱 Smart Planter Script Loaded (Separate Cooldowns)');
 
 // --- הגדרות מפתחות ---
 const PLANT_ID_KEY = 'ueJ63jSupqoGCsi60MgDfNe7SM6le5F8KKHjZPEMnto07KGnNo'; 
@@ -11,14 +10,12 @@ const OPENAI_API_KEY = 'sk-proj-rGB7j_zhElPYPlrjmDISbc6UukqfwZXtxyl_ZtN08BNAvzPG
 
 // --- גבולות בטיחות ---
 const SAFETY_LIMITS = {
-    min_moisture: 10, 
-    max_moisture: 90,
-    min_temp_limit: 5,
-    max_temp_limit: 45
+    min_moisture: 10, max_moisture: 90, min_temp_limit: 5, max_temp_limit: 45
 };
 
 // משתנים גלובליים
 let isRealPlanterActive = false;
+let currentCustomMsgs = { water: "", soil: "", temp: "" }; 
 let deviceStates = { pump_status: 0, fan_status: 0 }; 
 let currentSensors = { soil: 0, temp: 0, humidity: 0, light: 0 };
 let lastWateringTime = 0;
@@ -27,9 +24,66 @@ const WATERING_COOLDOWN = 300000;
 let targetValues = { moisture: 30, minTemp: 18, maxTemp: 30 }; 
 let modalBase64Image = "";
 
-// --- ניהול SMS ---
-let lastSmsTime = 0;
-const SMS_COOLDOWN = 3600000; 
+// --- ניהול זמן התראות נפרד לכל סוג ---
+// מילון ששומר מתי הייתה ההתראה האחרונה לכל סוג בנפרד
+let alertTimers = {
+    water: 0,
+    soil: 0,
+    temp: 0
+};
+const ALERT_COOLDOWN = 10000; // 10 שניות המתנה לכל סוג
+
+// ==========================================
+// פונקציית ההודעה הקופצת (החדשה!)
+// ==========================================
+function showPopupAlert(title, message, alertType, styleType = 'danger') {
+    const now = Date.now();
+    
+    // בדיקה: האם עבר מספיק זמן מאז ההודעה האחרונה *מסוג זה*?
+    if (now - alertTimers[alertType] < ALERT_COOLDOWN) return;
+    
+    // עדכון הזמן האחרון לסוג הזה בלבד
+    alertTimers[alertType] = now;
+    console.log(`🔔 קופצת התראה (${alertType}): ${message}`);
+
+    const container = document.getElementById('toastPlacement');
+    if (!container) return;
+
+    // בחירת אייקון וצבע
+    let icon = 'exclamation-triangle-fill';
+    let colorClass = 'text-danger'; 
+    
+    if (styleType === 'warning') { 
+        icon = 'droplet-half';
+        colorClass = 'text-warning'; 
+    } else if (styleType === 'temp') { 
+        icon = 'thermometer-high';
+        colorClass = 'text-danger'; 
+    }
+
+    const toastHtml = `
+        <div class="toast show" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header">
+                <i class="bi bi-${icon} ${colorClass} me-2"></i>
+                <strong class="me-auto">${title}</strong>
+                <small class="text-muted">עכשיו</small>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close" onclick="this.parentElement.parentElement.remove()"></button>
+            </div>
+            <div class="toast-body fw-bold">
+                ${message}
+            </div>
+        </div>
+    `;
+
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = toastHtml;
+    const newToast = tempDiv.firstElementChild;
+    container.appendChild(newToast);
+
+    setTimeout(() => {
+        if (newToast) newToast.remove();
+    }, 5000);
+}
 
 // ==========================================
 // לוגיקה ראשית
@@ -40,7 +94,10 @@ async function handleCreateNewPlanter() {
     const createBtn = document.getElementById('btn-create-planter');
     const isReal = document.getElementById('isRealDeviceCheck').checked;
     
-    // בדיקה מול Firebase האם כבר קיימת אדנית אמיתית
+    const msgWater = document.getElementById('msgWater').value || "התראה: מיכל המים ריק!";
+    const msgSoil = document.getElementById('msgSoil').value || "התראה: האדמה יבשה, משקה...";
+    const msgTemp = document.getElementById('msgTemp').value || "התראה: חם מדי! מפעיל מאוורר.";
+
     if (isReal && isRealPlanterActive) {
         if(confirm("קיימת כבר אדנית ראשית. להחליף אותה?")) {
              deletePlanter('real-planter-card'); 
@@ -53,7 +110,7 @@ async function handleCreateNewPlanter() {
     try {
         const cleanBase64 = modalBase64Image.split(',')[1];
 
-        // 1. Plant.id
+        // Plant.id
         const idRes = await fetch('https://api.plant.id/v3/identification', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Api-Key': PLANT_ID_KEY },
@@ -66,22 +123,25 @@ async function handleCreateNewPlanter() {
         if (!idData.result?.classification?.suggestions?.length) throw new Error("לא זוהה צמח.");
         const plantName = idData.result.classification.suggestions[0].name;
         
-        if (statusDiv) statusDiv.innerText = `✅ זוהה: ${plantName}\n🤖 ה-AI מחשב נתונים...`;
+        if (statusDiv) statusDiv.innerText = `✅ זוהה: ${plantName}\n🤖 ה-AI מגדיר נתונים...`;
 
-        // 2. OpenAI
+        // OpenAI
         const rawAiData = await fetchOpenAIData(plantName);
         const safeData = applySafetyLimits(rawAiData);
 
-        // יצירת האובייקט לשמירה
         const newPlanter = {
             id: isReal ? 'real-planter-card' : 'sim-' + Date.now(),
             type: isReal ? 'real' : 'sim',
             name: plantName,
             data: safeData,
-            image: modalBase64Image
+            image: modalBase64Image,
+            messages: {
+                water: msgWater,
+                soil: msgSoil,
+                temp: msgTemp
+            }
         };
 
-        // --- שינוי: שמירה לענן במקום לזיכרון המקומי ---
         saveToFirebase(newPlanter);
 
         const modalEl = document.getElementById('addPlanterModal');
@@ -99,8 +159,7 @@ async function handleCreateNewPlanter() {
     }
 }
 
-// --- פונקציות עזר ל-API ---
-
+// --- API Helpers ---
 async function fetchOpenAIData(plantName) {
     const prompt = `Identify "${plantName}". Return JSON: {"moisture_percent":int,"min_temp":int,"max_temp":int,"watering_freq":hebrew_string,"watering_desc":hebrew_string_no_quotes}`;
     try {
@@ -133,80 +192,53 @@ function applySafetyLimits(data) {
     };
 }
 
-async function triggerSMS(message) {
-    const now = Date.now();
-    if (now - lastSmsTime < SMS_COOLDOWN) return;
-    try {
-        await set(ref(database, '/sms_alerts'), { message: message, timestamp: now, pending: true });
-        lastSmsTime = now;
-    } catch (e) { console.error("Firebase SMS error:", e); }
-}
-
-// ==========================================
-// ניהול נתונים בענן (Firebase) - החלק החדש
-// ==========================================
-
+// --- Firebase Sync ---
 function saveToFirebase(planter) {
-    // שומר את האדנית בנתיב 'saved_planters' בדאטה-בייס
     set(ref(database, 'saved_planters/' + planter.id), planter)
-    .then(() => console.log("Planter saved to cloud"))
     .catch((e) => alert("שגיאה בשמירה לענן: " + e.message));
 }
 
 function listenToPlantersFromCloud() {
     const grid = document.getElementById('planters-grid');
     
-    // מאזין לכל שינוי ברשימת האדניות בענן
     onValue(ref(database, 'saved_planters'), (snapshot) => {
         const data = snapshot.val();
-        
-        // איפוס התצוגה לפני בנייה מחדש
         if(grid) grid.innerHTML = '';
-        isRealPlanterActive = false; // נאפס ונבדוק מחדש אם יש אמיתית
+        isRealPlanterActive = false; 
         
-        if (!data) {
-            checkEmptyState();
-            return;
-        }
+        if (!data) { checkEmptyState(); return; }
 
-        // המרה מאובייקט לרשימה ומיון (אמיתית ראשונה)
         const list = Object.values(data);
         list.sort((a, b) => (a.type === 'real' ? -1 : 1));
 
         list.forEach(planter => {
             renderPlanter(planter);
-            
-            // אם זו אדנית אמיתית, נעדכן את יעדי ההשקיה הגלובליים
             if (planter.type === 'real') {
                 isRealPlanterActive = true;
                 targetValues.moisture = planter.data.moisture_percent;
                 targetValues.maxTemp = planter.data.max_temp;
-                // הפעלת האזנה לחיישנים רק אם יש אדנית אמיתית
+                
+                if (planter.messages) {
+                    currentCustomMsgs = planter.messages;
+                }
                 setupSensorListeners(); 
             }
         });
-        
         checkEmptyState();
     });
 }
 
-// פונקציית המחיקה החדשה - מוחקת מהענן
 window.deletePlanter = function(id) {
-    if (!confirm('למחוק את האדנית? (הפעולה תסנכרן לכל המכשירים)')) return;
-    
-    remove(ref(database, 'saved_planters/' + id))
-    .then(() => console.log("Deleted from cloud"))
-    .catch(e => alert("שגיאה במחיקה: " + e.message));
-    
+    if (!confirm('למחוק את האדנית?')) return;
+    remove(ref(database, 'saved_planters/' + id));
     if (id === 'real-planter-card') isRealPlanterActive = false;
 }
 
 // ==========================================
-// פיירבייס - חיישנים (From Altera)
+// חיישנים ובקרה (מעודכן עם טיימרים נפרדים)
 // ==========================================
 
 function setupSensorListeners() {
-    // נוודא שאנחנו לא נרשמים פעמיים
     if (window.sensorsListening) return;
     window.sensorsListening = true;
 
@@ -214,13 +246,17 @@ function setupSensorListeners() {
         const data = snapshot.val();
         if (!data) return;
 
+        // 1. מיכל מים - משתמש בטיימר 'water'
         if (data.B !== undefined) {
             const level = parseInt(data.B);
             const el = document.getElementById('sensor-water');
             const bar = document.getElementById('water-bar');
             if(el) el.textContent = level + '%';
             if(bar) bar.style.width = level + '%';
-            if (level < 10) triggerSMS("התראה: מיכל המים עומד להתרוקן!");
+            
+            if (level < 2) {
+                showPopupAlert('מיכל המים ריק', currentCustomMsgs.water || "נא למלא מים!", 'water', 'warning');
+            }
         }
         
         if (data.A !== undefined) {
@@ -228,12 +264,18 @@ function setupSensorListeners() {
             if(el) el.textContent = data.A + ' cm';
         }
         
+        // 2. לחות אדמה - משתמש בטיימר 'soil'
         if (data.C !== undefined) {
             let raw = parseInt(data.C);
             let val = Math.max(0, Math.min(raw, 210)); 
             currentSensors.soil = Math.round(100 - ((val / 210) * 100));
+            
             const el = document.getElementById('sensor-soil');
             if(el) el.textContent = currentSensors.soil + '%';
+            
+            if (currentSensors.soil < targetValues.moisture) {
+                showPopupAlert('יובש באדמה', currentCustomMsgs.soil || "האדמה יבשה!", 'soil', 'warning');
+            }
             checkAndActuateReal();
         }
     });
@@ -243,7 +285,11 @@ function setupSensorListeners() {
             currentSensors.temp = parseFloat(s.val());
             const el = document.getElementById('sensor-temp');
             if(el) el.textContent = currentSensors.temp + '°';
-            if (currentSensors.temp > targetValues.maxTemp + 5) triggerSMS(`טמפרטורה גבוהה: ${currentSensors.temp}°`);
+            
+            // 3. טמפרטורה - משתמש בטיימר 'temp'
+            if (currentSensors.temp > targetValues.maxTemp) {
+                showPopupAlert('טמפרטורה גבוהה', currentCustomMsgs.temp || "חם מדי לצמח!", 'temp', 'temp');
+            }
             checkAndActuateReal();
         }
     });
@@ -295,10 +341,6 @@ async function setRealDeviceState(device, turnOn) {
         }
     } catch(e) { console.error(e); }
 }
-
-// ==========================================
-// רינדור (ללא שינוי מהותי, רק הגנה מקריסות)
-// ==========================================
 
 function renderPlanter(planter) {
     const isReal = planter.type === 'real';
@@ -402,6 +444,8 @@ function resetModal() {
     const btn = document.getElementById('btn-create-planter');
     const input = document.getElementById('modalFileInput');
     const check = document.getElementById('isRealDeviceCheck');
+    const msgInputs = ['msgWater', 'msgSoil', 'msgTemp'];
+
     if(preview) preview.style.display = 'none';
     if(text) text.style.display = 'block';
     if(status) status.innerText = "";
@@ -409,6 +453,11 @@ function resetModal() {
     if(input) input.value = "";
     modalBase64Image = "";
     if(check) check.checked = false;
+    
+    msgInputs.forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.value = "";
+    });
 }
 
 window.toggleSimButton = function(btn, type) {
@@ -426,11 +475,8 @@ window.toggleSimButton = function(btn, type) {
     }
 }
 
-// אתחול
 document.addEventListener('DOMContentLoaded', () => {
-    // הפעלת האזנה לענן במקום לזיכרון המקומי
     listenToPlantersFromCloud();
-
     const modalUploadBox = document.getElementById('modal-upload-box');
     const modalFileInput = document.getElementById('modalFileInput');
     const modalCreateBtn = document.getElementById('btn-create-planter');
