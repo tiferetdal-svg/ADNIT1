@@ -50,11 +50,10 @@
     .upload-area { border: 2px dashed #198754; background: #f0fdf4; border-radius: 15px; padding: 30px; text-align: center; cursor: pointer; transition: 0.3s; }
     .upload-area:hover { background: #dcfce7; border-color: #146c43; }
     
-    /* --- תיקון לתמונה במודל --- */
     #modal-preview-img { 
         max-height: 200px; 
-        max-width: 100%; /* חובה כדי שלא יגלוש לרוחב */
-        object-fit: contain; /* שומר על פרופורציות */
+        max-width: 100%; 
+        object-fit: contain; 
         display: none; 
         margin: 15px auto; 
         border-radius: 10px; 
@@ -62,6 +61,8 @@
     }
   </style>
 </head>
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastPlacement" style="z-index: 1100;">
+    </div>
 <body>
 
  <nav class="navbar navbar-expand-lg navbar-dark bg-success fixed-top">
@@ -83,7 +84,7 @@
           <li class="nav-item"><a class="nav-link active" href="personal-area.html">אזור אישי</a></li>
           <li class="nav-item" id="nav-login"><a class="nav-link" href="login/login.html">התחברות</a></li>
           <li class="nav-item" id="nav-profile" style="display: none;"><a class="nav-link" href="profile.html">פרופיל</a></li>
-                    <li class="nav-item" id="nav-logout" style="display: none;"><a class="nav-link" href="#" onclick="globalLogout()">התנתקות</a></li>
+          <li class="nav-item" id="nav-logout" style="display: none;"><a class="nav-link" href="#" onclick="globalLogout()">התנתקות</a></li>
         </ul>
       </div>
     </div>
@@ -129,10 +130,28 @@
                 <img id="modal-preview-img" src="" alt="preview">
             </div>
 
-            <div class="form-check form-switch mt-3 bg-light p-2 rounded border">
+            <div class="mt-4 p-3 bg-light rounded border">
+                <h6 class="fw-bold text-success mb-3"><i class="bi bi-chat-text"></i> הגדרת התראות אישיות:</h6>
+                
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">הודעה כשמיכל המים ריק:</label>
+                    <input type="text" class="form-control form-control-sm" id="msgWater" placeholder='לדוגמה: "אני צמא! תמלאו מים דחוף"'>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">הודעה כשהאדמה יבשה:</label>
+                    <input type="text" class="form-control form-control-sm" id="msgSoil" placeholder='לדוגמה: "התייבשתי, תפעילו השקיה!"'>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">הודעה כשהטמפרטורה גבוהה:</label>
+                    <input type="text" class="form-control form-control-sm" id="msgTemp" placeholder='לדוגמה: "חם לי אש! תדליקו מאוורר"'>
+                </div>
+            </div>
+
+            <div class="form-check form-switch mt-3">
                 <input class="form-check-input ms-2" type="checkbox" role="switch" id="isRealDeviceCheck">
-                <label class="form-check-label fw-bold" for="isRealDeviceCheck">חבר לרכיב הפיזי (אדנית ראשית)</label>
-                <div class="form-text small pe-1">סמן רק אם זו האדנית המחוברת לחשמל ולחיישנים.</div>
+                <label class="form-check-label fw-bold" for="isRealDeviceCheck">חבר לאדנית הפיזית (חיישנים)</label>
             </div>
 
             <div id="modal-ai-status" class="mt-3 text-center fw-bold small"></div>
