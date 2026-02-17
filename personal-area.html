@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>החממה החכמה שלי</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+  
+  <style>
+    .navbar { z-index: 1050 !important; }
+    .navbar-nav .nav-link { font-size: 16px; font-weight: 500; margin: 0 5px; }
+    .navbar-nav .nav-link.active { background-color: rgba(255,255,255,0.2); border-radius: 5px; }
+
+    /* כפתורי שליטה */
+    .control-btn { border-radius: 12px !important; font-weight: 600; font-size: 13px; padding: 8px; border: 2px solid; width: 100%; margin-bottom: 5px; transition: 0.3s; }
+    
+    .pump-btn-off { background: #e3f2fd; border-color: #0d6efd; color: #084298; }
+    .pump-btn-on { background: #0d6efd; border-color: #0d6efd; color: #fff; box-shadow: 0 0 10px rgba(13, 110, 253, 0.5); }
+    
+    .fan-btn-off { background: #e0f7fa; border-color: #00acc1; color: #006064; }
+    .fan-btn-on { background: #00acc1; border-color: #00acc1; color: #fff; box-shadow: 0 0 10px rgba(0, 172, 193, 0.5); }
+
+    /* כרטיס אדנית */
+    .planter-card { transition: transform 0.2s; border: none; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); overflow: hidden; height: 100%; position: relative; }
+    .planter-card:hover { transform: translateY(-5px); box-shadow: 0 8px 20px rgba(0,0,0,0.1); }
+    .planter-header { background: #f8f9fa; padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+    
+    /* כפתור מחיקה */
+    .delete-btn { position: absolute; top: 10px; left: 10px; background: rgba(255, 0, 0, 0.1); color: red; border: none; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.3s; z-index: 10; }
+    .delete-btn:hover { background: red; color: white; }
+
+    /* תגיות */
+    .real-badge { background-color: #d1e7dd; color: #0f5132; padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: bold; border: 1px solid #badbcc; }
+    .sim-badge { background-color: #e2e3e5; color: #41464b; padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; border: 1px solid #ced4da; }
+
+    /* כפתור הוספה (+) */
+    .fab-btn {
+        position: fixed; bottom: 30px; left: 30px; width: 65px; height: 65px;
+        background: linear-gradient(145deg, #198754, #146c43); color: white; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 32px; box-shadow: 0 6px 20px rgba(20, 108, 67, 0.4);
+        border: none; cursor: pointer; z-index: 1000; transition: transform 0.3s;
+    }
+    .fab-btn:hover { transform: scale(1.1) rotate(90deg); }
+
+    .sensor-item h6 { font-size: 0.75rem; color: #6c757d; margin: 0; }
+    .sensor-item h4 { font-size: 1.1rem; font-weight: bold; margin: 0; }
+    .upload-area { border: 2px dashed #198754; background: #f0fdf4; border-radius: 15px; padding: 30px; text-align: center; cursor: pointer; transition: 0.3s; }
+    .upload-area:hover { background: #dcfce7; border-color: #146c43; }
+    
+    /* --- תיקון לתמונה במודל --- */
+    #modal-preview-img { 
+        max-height: 200px; 
+        max-width: 100%; /* חובה כדי שלא יגלוש לרוחב */
+        object-fit: contain; /* שומר על פרופורציות */
+        display: none; 
+        margin: 15px auto; 
+        border-radius: 10px; 
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+    }
+  </style>
+</head>
+<body>
+
+ <nav class="navbar navbar-expand-lg navbar-dark bg-success fixed-top">
+    <div class="container-fluid">
+      <a class="navbar-brand" href="index.html">
+        <img src="img/לוגו אדנית שקוף.png" alt="לוגו" style="max-height:80px; width:auto;">
+      </a>
+      
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="mainNav">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item"><a class="nav-link" href="index.html">בית</a></li>
+          <li class="nav-item"><a class="nav-link" href="about.html">אודות</a></li>
+          <li class="nav-item"><a class="nav-link" href="gallery.html">גלריה</a></li>
+          <li class="nav-item"><a class="nav-link" href="contact.html">צור קשר</a></li>
+          <li class="nav-item"><a class="nav-link active" href="personal-area.html">אזור אישי</a></li>
+          <li class="nav-item" id="nav-login"><a class="nav-link" href="login/login.html">התחברות</a></li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <div style="height: 80px;"></div>
+
+  <main class="container my-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
+        <h4 class="text-success fw-bold m-0">ניהול אדניות</h4>
+        <span class="badge bg-light text-dark border">מערכת פעילה</span>
+    </div>
+    
+    <div class="row g-4" id="planters-grid"></div>
+
+    <div id="empty-state" class="text-center text-muted mt-5" style="display: none;">
+        <i class="bi bi-inbox fs-1"></i>
+        <p class="mt-2">אין אדניות כרגע. לחצי על + להוספה.</p>
+    </div>
+  </main>
+
+  <button class="fab-btn" data-bs-toggle="modal" data-bs-target="#addPlanterModal" title="הוסף אדנית חדשה">
+    <i class="bi bi-plus-lg"></i>
+  </button>
+
+  <div class="modal fade" id="addPlanterModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content border-0 shadow">
+        <div class="modal-header bg-success text-white">
+          <h5 class="modal-title"><i class="bi bi-magic"></i> הוספת אדנית חדשה</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body p-4">
+            
+            <p class="text-muted text-center mb-3">צלמי את הצמח, וה-AI יגדיר את האדנית.</p>
+
+            <div class="upload-area" id="modal-upload-box">
+                <input type="file" id="modalFileInput" accept="image/*" hidden>
+                <div id="modal-upload-text">
+                    <i class="bi bi-camera fs-1 text-success"></i>
+                    <h6 class="mt-2 fw-bold">לחצי לצילום / העלאה</h6>
+                </div>
+                <img id="modal-preview-img" src="" alt="preview">
+            </div>
+
+            <div class="form-check form-switch mt-3 bg-light p-2 rounded border">
+                <input class="form-check-input ms-2" type="checkbox" role="switch" id="isRealDeviceCheck">
+                <label class="form-check-label fw-bold" for="isRealDeviceCheck">חבר לרכיב הפיזי (אדנית ראשית)</label>
+                <div class="form-text small pe-1">סמן רק אם זו האדנית המחוברת לחשמל ולחיישנים.</div>
+            </div>
+
+            <div id="modal-ai-status" class="mt-3 text-center fw-bold small"></div>
+
+            <button id="btn-create-planter" class="btn btn-success w-100 mt-3 py-2 fw-bold shadow-sm" disabled>
+                <i class="bi bi-search"></i> סרוק וצור
+            </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<template id="planter-template">
+    <div class="col-md-6 col-lg-4 fade-in-card">
+        <div class="card planter-card">
+            <button class="delete-btn" title="מחיקה"><i class="bi bi-trash"></i></button>
+            <div class="planter-header">
+                <div>
+                    <span class="fw-bold d-block text-truncate planter-name" style="max-width:150px"></span>
+                    <small class="text-muted planter-subtitle" style="font-size: 0.75rem;"></small>
+                </div>
+                <span class="badge-status"></span>
+            </div>
+            <div class="card-body">
+                <div class="text-center mb-3">
+                    <img class="planter-img" style="width: 80px; height: 80px; object-fit: cover; border-radius: 50%; border: 3px solid;">
+                </div>
+                
+                <div class="row g-2 mb-3 text-center bg-light rounded p-2 mx-0">
+                    <div class="col-6 sensor-item border-end"><h6>לחות קרקע</h6><h4 class="val-soil">--</h4></div>
+                    <div class="col-6 sensor-item"><h6>טמפרטורה</h6><h4 class="val-temp">--</h4></div>
+                    <div class="col-6 sensor-item border-top pt-2 mt-2 border-end"><h6>לחות אוויר</h6><h4 class="val-humidity">--</h4></div>
+                    <div class="col-6 sensor-item border-top pt-2 mt-2"><h6>מרחק</h6><h4 class="val-dist">--</h4></div>
+                </div>
+
+                <div class="ai-recommendations p-2 mb-3 rounded" style="background-color: #f0fdf4; border: 1px solid #dcfce7;">
+                    <div class="d-flex align-items-center mb-1">
+                        <i class="bi bi-robot text-success me-2"></i>
+                        <span class="fw-bold small text-success">המלצות AI לצמח זה:</span>
+                    </div>
+                    <div class="row g-1 text-center small">
+                        <div class="col-4 border-end">
+                            <span class="d-block text-muted" style="font-size: 0.65rem;">יעד לחות</span>
+                            <span class="fw-bold val-ai-target-moist">--</span>
+                        </div>
+                        <div class="col-4 border-end">
+                            <span class="d-block text-muted" style="font-size: 0.65rem;">טמפ' אידיאלית</span>
+                            <span class="fw-bold val-ai-temp-range">--</span>
+                        </div>
+                        <div class="col-4">
+                            <span class="d-block text-muted" style="font-size: 0.65rem;">תדירות</span>
+                            <span class="fw-bold val-ai-freq">--</span>
+                        </div>
+                    </div>
+                    <div class="mt-2 pt-2 border-top text-center" style="font-size: 0.75rem;">
+                         <span class="val-ai-instruction">טוען נתונים...</span>
+                    </div>
+                </div>
+                
+                <div class="mb-3 px-1">
+                    <div class="d-flex justify-content-between align-items-end mb-1">
+                        <span class="text-muted small fw-bold"><i class="bi bi-water"></i> מפלס מים</span>
+                        <span class="val-water-text fw-bold text-primary">--</span>
+                    </div>
+                    <div class="progress" style="height: 10px; border-radius: 5px;">
+                        <div class="water-bar progress-bar bg-primary" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <div class="btn-group">
+                         <button class="btn control-btn btn-pump-node"><i class="bi bi-droplet"></i> <span class="txt-pump">משאבה</span></button>
+                         <button class="btn control-btn btn-fan-node"><i class="bi bi-fan"></i> <span class="txt-fan">מאוורר</span></button>
+                    </div>
+                </div>
+
+                <div class="mt-3 text-center position-relative">
+                    <div class="ratio ratio-16x9 bg-dark rounded camera-container"></div>
+                    <span class="cam-badge-status badge position-absolute top-0 end-0 m-2"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script type="module" src="js/navbar-auth.js"></script>
+  <script type="module" src="js/personal-area.js"></script>
+
+</body>
+</html>
