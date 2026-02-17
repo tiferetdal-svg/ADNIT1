@@ -1,12 +1,14 @@
 // Smart Planter - Final Version (Separate Cooldowns)
 import { database } from './firebase-config.js';
 import { ref, set, get, onValue, update, remove } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+// ייבוא המפתחות מקובץ הקונפיגורציה החיצוני
+import { API_KEYS } from './config.js';
 
 console.log('🌱 Smart Planter Script Loaded (Separate Cooldowns)');
 
-// --- הגדרות מפתחות ---
-const PLANT_ID_KEY = 'ueJ63jSupqoGCsi60MgDfNe7SM6le5F8KKHjZPEMnto07KGnNo'; 
-const OPENAI_API_KEY = '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';
+// --- הגדרות מפתחות (נלקחים כעת מהקובץ החיצוני) ---
+const PLANT_ID_KEY = API_KEYS.PLANT_ID; 
+const OPENAI_API_KEY = API_KEYS.OPENAI;
 
 // --- גבולות בטיחות ---
 const SAFETY_LIMITS = {
@@ -25,7 +27,6 @@ let targetValues = { moisture: 30, minTemp: 18, maxTemp: 30 };
 let modalBase64Image = "";
 
 // --- ניהול זמן התראות נפרד לכל סוג ---
-// מילון ששומר מתי הייתה ההתראה האחרונה לכל סוג בנפרד
 let alertTimers = {
     water: 0,
     soil: 0,
@@ -34,7 +35,7 @@ let alertTimers = {
 const ALERT_COOLDOWN = 10000; // 10 שניות המתנה לכל סוג
 
 // ==========================================
-// פונקציית ההודעה הקופצת (החדשה!)
+// פונקציית ההודעה הקופצת
 // ==========================================
 function showPopupAlert(title, message, alertType, styleType = 'danger') {
     const now = Date.now();
