@@ -1,8 +1,9 @@
-// Smart Planter - Final Version (Smarter AI Prompt)
+// Smart Planter - Final Cloud Sync Version (Firebase Only)
 import { database } from './firebase-config.js';
-import { ref, set, get, onValue, update } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+// הוספתי את 'remove' לרשימת הייבוא כדי שנוכל למחוק מהענן
+import { ref, set, get, onValue, update, remove } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
-console.log('🌱 Smart Planter Script Loaded (Smarter AI)');
+console.log('🌱 Smart Planter Script Loaded (Cloud Sync Mode)');
 
 // --- הגדרות מפתחות ---
 const PLANT_ID_KEY = 'ueJ63jSupqoGCsi60MgDfNe7SM6le5F8KKHjZPEMnto07KGnNo'; 
@@ -16,6 +17,7 @@ const SAFETY_LIMITS = {
     max_temp_limit: 45
 };
 
+// משתנים גלובליים
 let isRealPlanterActive = false;
 let deviceStates = { pump_status: 0, fan_status: 0 }; 
 let currentSensors = { soil: 0, temp: 0, humidity: 0, light: 0 };
@@ -25,11 +27,20 @@ const WATERING_COOLDOWN = 300000;
 let targetValues = { moisture: 30, minTemp: 18, maxTemp: 30 }; 
 let modalBase64Image = "";
 
+// --- ניהול SMS ---
+let lastSmsTime = 0;
+const SMS_COOLDOWN = 3600000; 
+
+// ==========================================
+// לוגיקה ראשית
+// ==========================================
+
 async function handleCreateNewPlanter() {
     const statusDiv = document.getElementById('modal-ai-status');
     const createBtn = document.getElementById('btn-create-planter');
     const isReal = document.getElementById('isRealDeviceCheck').checked;
     
+    // בדיקה מול Firebase האם כבר קיימת אדנית אמיתית
     if (isReal && isRealPlanterActive) {
         if(confirm("קיימת כבר אדנית ראשית. להחליף אותה?")) {
              deletePlanter('real-planter-card'); 
@@ -45,37 +56,23 @@ async function handleCreateNewPlanter() {
         // 1. Plant.id
         const idRes = await fetch('https://api.plant.id/v3/identification', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Api-Key': PLANT_ID_KEY
-            },
-            body: JSON.stringify({
-                images: [cleanBase64],
-                similar_images: true
-            })
+            headers: { 'Content-Type': 'application/json', 'Api-Key': PLANT_ID_KEY },
+            body: JSON.stringify({ images: [cleanBase64], similar_images: true })
         });
 
-        if (!idRes.ok) {
-            const errText = await idRes.text();
-            throw new Error(`Plant.id Error: ${errText}`);
-        }
-
+        if (!idRes.ok) throw new Error(await idRes.text());
         const idData = await idRes.json();
         
-        if (!idData.result?.classification?.suggestions?.length) {
-            throw new Error("לא זוהה צמח בתמונה.");
-        }
-        
+        if (!idData.result?.classification?.suggestions?.length) throw new Error("לא זוהה צמח.");
         const plantName = idData.result.classification.suggestions[0].name;
         
-        if (statusDiv) statusDiv.innerText = `✅ זוהה: ${plantName}\n🤖 ה-AI מחשב השקיה אופטימלית...`;
+        if (statusDiv) statusDiv.innerText = `✅ זוהה: ${plantName}\n🤖 ה-AI מחשב נתונים...`;
 
         // 2. OpenAI
         const rawAiData = await fetchOpenAIData(plantName);
-        console.log("🤖 תשובת ה-AI הגולמית:", rawAiData); // בדיקה בקונסול
-
         const safeData = applySafetyLimits(rawAiData);
 
+        // יצירת האובייקט לשמירה
         const newPlanter = {
             id: isReal ? 'real-planter-card' : 'sim-' + Date.now(),
             type: isReal ? 'real' : 'sim',
@@ -84,14 +81,8 @@ async function handleCreateNewPlanter() {
             image: modalBase64Image
         };
 
-        renderPlanter(newPlanter);
-        saveToStorage(newPlanter);
-
-        if (isReal) {
-            targetValues.moisture = safeData.moisture_percent;
-            targetValues.maxTemp = safeData.max_temp;
-            setupFirebaseListeners();
-        }
+        // --- שינוי: שמירה לענן במקום לזיכרון המקומי ---
+        saveToFirebase(newPlanter);
 
         const modalEl = document.getElementById('addPlanterModal');
         if (modalEl) {
@@ -108,77 +99,205 @@ async function handleCreateNewPlanter() {
     }
 }
 
-// --- המוח החדש והחכם יותר ---
-async function fetchOpenAIData(plantName) {
-    // הנחיה חכמה יותר שמבדילה בין סוגי צמחים
-    const prompt = `
-    Identify the plant "${plantName}" and provide specific agricultural data.
-    CRITICAL RULES FOR VALUES:
-    - If Cactus/Succulent: moisture_percent MUST be 15-25%.
-    - If Leafy/Tropical (e.g., Basil, Fern): moisture_percent MUST be 50-70%.
-    - If Flowering (e.g., Rose): moisture_percent MUST be 40-60%.
-    
-    Return ONLY a valid JSON object:
-    {
-        "moisture_percent": (integer, based on the rules above),
-        "min_temp": (integer),
-        "max_temp": (integer),
-        "watering_freq": (short Hebrew string, e.g. "פעם בשבוע"),
-        "watering_desc": (short Hebrew string, e.g. "לייבש בין השקיות")
-    }`;
+// --- פונקציות עזר ל-API ---
 
+async function fetchOpenAIData(plantName) {
+    const prompt = `Identify "${plantName}". Return JSON: {"moisture_percent":int,"min_temp":int,"max_temp":int,"watering_freq":hebrew_string,"watering_desc":hebrew_string_no_quotes}`;
     try {
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${OPENAI_API_KEY}`
-            },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
             body: JSON.stringify({
                 model: "gpt-3.5-turbo-1106",
                 response_format: { "type": "json_object" },
                 messages: [{role: "user", content: prompt}],
-                temperature: 0.2 // יצירתיות נמוכה לדיוק גבוה
+                temperature: 0.2
             })
         });
-
         const data = await response.json();
-        if (data.error) throw new Error("OpenAI: " + data.error.message);
-        
-        const content = data.choices[0].message.content;
-        return JSON.parse(content);
-
+        if (data.error) throw new Error(data.error.message);
+        return JSON.parse(data.choices[0].message.content);
     } catch (e) {
-        console.error("AI Error:", e);
-        // ברירת מחדל רק במקרה חירום
-        return {
-            moisture_percent: 40, min_temp: 18, max_temp: 30,
-            watering_freq: "לפי הצורך", watering_desc: "השקיה רגילה"
-        };
+        return { moisture_percent: 40, min_temp: 18, max_temp: 30, watering_freq: "לפי הצורך", watering_desc: "השקיה רגילה" };
     }
 }
 
 function applySafetyLimits(data) {
-    // אם הנתון לא קיים, נשתמש ב-40 כברירת מחדל
-    let m = data.moisture_percent !== undefined ? data.moisture_percent : 40;
-    let minT = data.min_temp || 15;
-    let maxT = data.max_temp || 30;
-
-    let safeMoist = Math.max(SAFETY_LIMITS.min_moisture, Math.min(m, SAFETY_LIMITS.max_moisture));
-    let safeMinT = Math.max(SAFETY_LIMITS.min_temp_limit, minT);
-    let safeMaxT = Math.min(SAFETY_LIMITS.max_temp_limit, maxT);
-
+    let m = data.moisture_percent || 40;
     return {
-        moisture_percent: safeMoist, 
-        min_temp: safeMinT, 
-        max_temp: safeMaxT,
+        moisture_percent: Math.max(10, Math.min(m, 90)),
+        min_temp: Math.max(5, data.min_temp || 15),
+        max_temp: Math.min(45, data.max_temp || 30),
         watering_desc: data.watering_desc || "השקיה מותאמת",
         watering_freq: data.watering_freq || "משתנה"
     };
 }
 
+async function triggerSMS(message) {
+    const now = Date.now();
+    if (now - lastSmsTime < SMS_COOLDOWN) return;
+    try {
+        await set(ref(database, '/sms_alerts'), { message: message, timestamp: now, pending: true });
+        lastSmsTime = now;
+    } catch (e) { console.error("Firebase SMS error:", e); }
+}
+
 // ==========================================
-// רינדור (ללא שינוי)
+// ניהול נתונים בענן (Firebase) - החלק החדש
+// ==========================================
+
+function saveToFirebase(planter) {
+    // שומר את האדנית בנתיב 'saved_planters' בדאטה-בייס
+    set(ref(database, 'saved_planters/' + planter.id), planter)
+    .then(() => console.log("Planter saved to cloud"))
+    .catch((e) => alert("שגיאה בשמירה לענן: " + e.message));
+}
+
+function listenToPlantersFromCloud() {
+    const grid = document.getElementById('planters-grid');
+    
+    // מאזין לכל שינוי ברשימת האדניות בענן
+    onValue(ref(database, 'saved_planters'), (snapshot) => {
+        const data = snapshot.val();
+        
+        // איפוס התצוגה לפני בנייה מחדש
+        if(grid) grid.innerHTML = '';
+        isRealPlanterActive = false; // נאפס ונבדוק מחדש אם יש אמיתית
+        
+        if (!data) {
+            checkEmptyState();
+            return;
+        }
+
+        // המרה מאובייקט לרשימה ומיון (אמיתית ראשונה)
+        const list = Object.values(data);
+        list.sort((a, b) => (a.type === 'real' ? -1 : 1));
+
+        list.forEach(planter => {
+            renderPlanter(planter);
+            
+            // אם זו אדנית אמיתית, נעדכן את יעדי ההשקיה הגלובליים
+            if (planter.type === 'real') {
+                isRealPlanterActive = true;
+                targetValues.moisture = planter.data.moisture_percent;
+                targetValues.maxTemp = planter.data.max_temp;
+                // הפעלת האזנה לחיישנים רק אם יש אדנית אמיתית
+                setupSensorListeners(); 
+            }
+        });
+        
+        checkEmptyState();
+    });
+}
+
+// פונקציית המחיקה החדשה - מוחקת מהענן
+window.deletePlanter = function(id) {
+    if (!confirm('למחוק את האדנית? (הפעולה תסנכרן לכל המכשירים)')) return;
+    
+    remove(ref(database, 'saved_planters/' + id))
+    .then(() => console.log("Deleted from cloud"))
+    .catch(e => alert("שגיאה במחיקה: " + e.message));
+    
+    if (id === 'real-planter-card') isRealPlanterActive = false;
+}
+
+// ==========================================
+// פיירבייס - חיישנים (From Altera)
+// ==========================================
+
+function setupSensorListeners() {
+    // נוודא שאנחנו לא נרשמים פעמיים
+    if (window.sensorsListening) return;
+    window.sensorsListening = true;
+
+    onValue(ref(database, '/fromAltera'), (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        if (data.B !== undefined) {
+            const level = parseInt(data.B);
+            const el = document.getElementById('sensor-water');
+            const bar = document.getElementById('water-bar');
+            if(el) el.textContent = level + '%';
+            if(bar) bar.style.width = level + '%';
+            if (level < 10) triggerSMS("התראה: מיכל המים עומד להתרוקן!");
+        }
+        
+        if (data.A !== undefined) {
+            const el = document.getElementById('sensor-dist');
+            if(el) el.textContent = data.A + ' cm';
+        }
+        
+        if (data.C !== undefined) {
+            let raw = parseInt(data.C);
+            let val = Math.max(0, Math.min(raw, 210)); 
+            currentSensors.soil = Math.round(100 - ((val / 210) * 100));
+            const el = document.getElementById('sensor-soil');
+            if(el) el.textContent = currentSensors.soil + '%';
+            checkAndActuateReal();
+        }
+    });
+
+    onValue(ref(database, '/TEMP'), (s) => {
+        if(s.val() !== null) {
+            currentSensors.temp = parseFloat(s.val());
+            const el = document.getElementById('sensor-temp');
+            if(el) el.textContent = currentSensors.temp + '°';
+            if (currentSensors.temp > targetValues.maxTemp + 5) triggerSMS(`טמפרטורה גבוהה: ${currentSensors.temp}°`);
+            checkAndActuateReal();
+        }
+    });
+    
+    onValue(ref(database, '/HUMIDITY'), (s) => {
+        if(s.val() !== null) {
+            const el = document.getElementById('sensor-humidity');
+            if(el) el.textContent = s.val() + '%';
+        }
+    });
+
+    onValue(ref(database, '/camIp'), (s) => {
+        const vid = document.getElementById('camera-stream');
+        if (vid && s.val()) {
+            if(!vid.src.includes(s.val())) vid.src = `http://${s.val()}:81/stream`;
+            const badge = document.getElementById('cam-status');
+            if(badge) { badge.innerText = "מחובר"; badge.className = "badge bg-success position-absolute top-0 end-0 m-2"; }
+        }
+    });
+}
+
+function checkAndActuateReal() {
+    const now = Date.now();
+    if (currentSensors.soil < targetValues.moisture) {
+        if (now - lastWateringTime > WATERING_COOLDOWN) {
+            console.log("💧 משקה...");
+            lastWateringTime = now;
+            setRealDeviceState('pump', true);
+            setTimeout(() => setRealDeviceState('pump', false), WATERING_DURATION);
+        }
+    }
+    if (currentSensors.temp > targetValues.maxTemp && deviceStates.fan_status === 0) setRealDeviceState('fan', true);
+    else if (currentSensors.temp < targetValues.maxTemp && deviceStates.fan_status === 1) setRealDeviceState('fan', false);
+}
+
+async function setRealDeviceState(device, turnOn) {
+    const desired = turnOn ? 1 : 0;
+    if (deviceStates[device + '_status'] === desired) return;
+    try {
+        await set(ref(database, '/toAltera'), (device === 'pump') ? (turnOn ? 129 : 128) : (turnOn ? 65 : 64));
+        await update(ref(database, 'smart_planter/controls'), { [device + '_status']: desired });
+        deviceStates[device + '_status'] = desired;
+        const btn = document.getElementById(`btn-${device}`);
+        if (btn) {
+            btn.className = `btn control-btn ${device}-btn-${turnOn ? 'on' : 'off'}`;
+            const txt = btn.querySelector('span');
+            const label = device === 'pump' ? 'משאבה' : 'מאוורר';
+            if(txt) txt.innerText = `${label} ${turnOn ? 'פועל' : ''}`;
+        }
+    } catch(e) { console.error(e); }
+}
+
+// ==========================================
+// רינדור (ללא שינוי מהותי, רק הגנה מקריסות)
 // ==========================================
 
 function renderPlanter(planter) {
@@ -198,7 +317,6 @@ function renderPlanter(planter) {
     const cardEl = clone.querySelector('.planter-card');
 
     if (isReal) {
-        isRealPlanterActive = true;
         if(cardEl) cardEl.classList.add('border-success', 'border-2');
         if(header) header.classList.add('bg-success', 'bg-opacity-10');
         if(badge) { badge.className = 'real-badge'; badge.innerHTML = '<i class="bi bi-wifi"></i> מחובר'; }
@@ -211,7 +329,7 @@ function renderPlanter(planter) {
     const nameEl = clone.querySelector('.planter-name');
     const imgEl = clone.querySelector('.planter-img');
     if(nameEl) nameEl.innerText = planter.name;
-    if(imgEl) {
+    if(imgEl && planter.image) {
         imgEl.src = planter.image;
         if(isReal) imgEl.style.borderColor = "#198754";
     }
@@ -255,15 +373,12 @@ function renderPlanter(planter) {
         setTxt('.val-humidity', "50%");
         setTxt('.val-dist', "12 cm");
         setTxt('.val-water-text', "80%");
-        
         const wBar = clone.querySelector('.water-bar');
         if(wBar) wBar.style.width = "80%";
-        
         const pBtn = clone.querySelector('.btn-pump-node');
         const fBtn = clone.querySelector('.btn-fan-node');
         if(pBtn) pBtn.onclick = (e) => toggleSimButton(e.currentTarget, 'pump');
         if(fBtn) fBtn.onclick = (e) => toggleSimButton(e.currentTarget, 'fan');
-        
         const camBadge = clone.querySelector('.cam-badge-status');
         if(camBadge) { camBadge.innerText = "אין מצלמה"; camBadge.classList.add('bg-secondary'); }
     }
@@ -271,144 +386,13 @@ function renderPlanter(planter) {
     const delBtn = clone.querySelector('.delete-btn');
     if(delBtn) delBtn.onclick = () => deletePlanter(planter.id);
 
-    if (isReal) {
-        grid.insertBefore(clone, grid.firstChild);
-    } else {
-        grid.appendChild(clone);
-    }
-    
-    checkEmptyState();
-}
-
-function setupFirebaseListeners() {
-    if (!document.getElementById('sensor-soil')) return;
-
-    onValue(ref(database, '/fromAltera'), (snapshot) => {
-        const data = snapshot.val();
-        if (!data) return;
-
-        if (data.B !== undefined && data.B !== null) {
-            const el = document.getElementById('sensor-water');
-            const bar = document.getElementById('water-bar');
-            if(el) el.textContent = parseInt(data.B) + '%';
-            if(bar) bar.style.width = parseInt(data.B) + '%';
-        }
-        
-        if (data.A !== undefined && data.A !== null) {
-            const el = document.getElementById('sensor-dist');
-            if(el) el.textContent = data.A + ' cm';
-        }
-        
-        if (data.C !== undefined && data.C !== null) {
-            let raw = parseInt(data.C);
-            let val = Math.max(0, Math.min(raw, 210)); 
-            currentSensors.soil = Math.round(100 - ((val / 210) * 100));
-            const el = document.getElementById('sensor-soil');
-            if(el) el.textContent = currentSensors.soil + '%';
-            checkAndActuateReal();
-        }
-    });
-
-    onValue(ref(database, '/TEMP'), (s) => {
-        if(s.val() !== null) {
-            currentSensors.temp = parseFloat(s.val());
-            const el = document.getElementById('sensor-temp');
-            if(el) el.textContent = currentSensors.temp + '°';
-            checkAndActuateReal();
-        }
-    });
-    
-    onValue(ref(database, '/HUMIDITY'), (s) => {
-        if(s.val() !== null) {
-            const el = document.getElementById('sensor-humidity');
-            if(el) el.textContent = s.val() + '%';
-        }
-    });
-
-    onValue(ref(database, '/camIp'), (s) => {
-        const vid = document.getElementById('camera-stream');
-        if (vid && s.val()) {
-            if(!vid.src.includes(s.val())) vid.src = `http://${s.val()}:81/stream`;
-            const badge = document.getElementById('cam-status');
-            if(badge) { badge.innerText = "מחובר"; badge.className = "badge bg-success position-absolute top-0 end-0 m-2"; }
-        }
-    });
-}
-
-function checkAndActuateReal() {
-    const now = Date.now();
-    if (currentSensors.soil < targetValues.moisture) {
-        if (now - lastWateringTime > WATERING_COOLDOWN) {
-            console.log("💧 משקה...");
-            lastWateringTime = now;
-            setRealDeviceState('pump', true);
-            setTimeout(() => setRealDeviceState('pump', false), WATERING_DURATION);
-        }
-    }
-    if (currentSensors.temp > targetValues.maxTemp && deviceStates.fan_status === 0) setRealDeviceState('fan', true);
-    else if (currentSensors.temp < targetValues.maxTemp && deviceStates.fan_status === 1) setRealDeviceState('fan', false);
-}
-
-async function setRealDeviceState(device, turnOn) {
-    const desired = turnOn ? 1 : 0;
-    if (deviceStates[device + '_status'] === desired) return;
-
-    const cmd = (device === 'pump') ? (turnOn ? 129 : 128) : (turnOn ? 65 : 64);
-    
-    try {
-        await set(ref(database, '/toAltera'), cmd);
-        await update(ref(database, 'smart_planter/controls'), { [device + '_status']: desired });
-        deviceStates[device + '_status'] = desired;
-        
-        const btn = document.getElementById(`btn-${device}`);
-        if (btn) {
-            btn.className = `btn control-btn ${device}-btn-${turnOn ? 'on' : 'off'}`;
-            const txt = btn.querySelector('span');
-            const label = device === 'pump' ? 'משאבה' : 'מאוורר';
-            if(txt) txt.innerText = `${label} ${turnOn ? 'פועל' : ''}`;
-        }
-    } catch(e) { console.error(e); }
-}
-
-function saveToStorage(planter) {
-    let list = JSON.parse(localStorage.getItem('my_planters') || '[]');
-    list = list.filter(p => p.id !== planter.id);
-    list.push(planter);
-    localStorage.setItem('my_planters', JSON.stringify(list));
-}
-
-function loadFromStorage() {
-    const list = JSON.parse(localStorage.getItem('my_planters') || '[]');
-    list.sort((a, b) => (a.type === 'real' ? -1 : 1));
-    list.forEach(p => renderPlanter(p));
-    
-    if (list.some(p => p.type === 'real')) {
-        const real = list.find(p => p.type === 'real');
-        if(real) {
-            targetValues.moisture = real.data.moisture_percent;
-            targetValues.maxTemp = real.data.max_temp;
-            setupFirebaseListeners();
-        }
-    }
-}
-
-window.deletePlanter = function(id) {
-    if (!confirm('למחוק את האדנית?')) return;
-    const el = document.getElementById(id);
-    if (el) el.remove();
-    let list = JSON.parse(localStorage.getItem('my_planters') || '[]');
-    list = list.filter(p => p.id !== id);
-    localStorage.setItem('my_planters', JSON.stringify(list));
-    if (id === 'real-planter-card') isRealPlanterActive = false;
-    checkEmptyState();
+    if (isReal) { grid.insertBefore(clone, grid.firstChild); } else { grid.appendChild(clone); }
 }
 
 function checkEmptyState() {
     const grid = document.getElementById('planters-grid');
     const emptyMsg = document.getElementById('empty-state');
-    if (grid && emptyMsg) {
-        emptyMsg.style.display = (grid.children.length === 0) ? 'block' : 'none';
-    }
+    if (grid && emptyMsg) emptyMsg.style.display = (grid.children.length === 0) ? 'block' : 'none';
 }
 
 function resetModal() {
@@ -418,7 +402,6 @@ function resetModal() {
     const btn = document.getElementById('btn-create-planter');
     const input = document.getElementById('modalFileInput');
     const check = document.getElementById('isRealDeviceCheck');
-
     if(preview) preview.style.display = 'none';
     if(text) text.style.display = 'block';
     if(status) status.innerText = "";
@@ -443,11 +426,14 @@ window.toggleSimButton = function(btn, type) {
     }
 }
 
+// אתחול
 document.addEventListener('DOMContentLoaded', () => {
+    // הפעלת האזנה לענן במקום לזיכרון המקומי
+    listenToPlantersFromCloud();
+
     const modalUploadBox = document.getElementById('modal-upload-box');
     const modalFileInput = document.getElementById('modalFileInput');
     const modalCreateBtn = document.getElementById('btn-create-planter');
-
     if (modalUploadBox) {
         modalUploadBox.onclick = () => modalFileInput.click();
         modalFileInput.onchange = (e) => {
@@ -465,11 +451,5 @@ document.addEventListener('DOMContentLoaded', () => {
             r.readAsDataURL(file);
         };
         if(modalCreateBtn) modalCreateBtn.onclick = handleCreateNewPlanter;
-    }
-
-    try {
-        loadFromStorage();
-    } catch (e) {
-        console.error("Storage Error", e);
     }
 });
