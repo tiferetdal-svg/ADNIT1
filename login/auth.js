@@ -1,10 +1,10 @@
 // Firebase Authentication System
-// Import Firebase modules from CDN (v9 modular)
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
 import { 
     getAuth, 
     signInWithEmailAndPassword, 
-    createUserWithEmailAndPassword 
+    createUserWithEmailAndPassword,
+    sendPasswordResetEmail 
 } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js';
 import { 
     getDatabase, 
@@ -14,7 +14,6 @@ import {
 
 console.log('🔥 Firebase Auth module loaded');
 
-// ===== STEP 1: PASTE YOUR FIREBASE CONFIG HERE =====
 const firebaseConfig = {
     apiKey: "AIzaSyBAeXCLtxDl-C0CdRG3e5cgaD7Uwc7WhaE",
     authDomain: "adanit-ecb78.firebaseapp.com",
@@ -23,7 +22,7 @@ const firebaseConfig = {
     storageBucket: "adanit-ecb78.firebasestorage.app",
     messagingSenderId: "741983407880",
     appId: "1:741983407880:web:0cca1cde1fef27b851e6bd"
-  };
+};
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -32,9 +31,8 @@ const database = getDatabase(app);
 
 console.log('✅ Firebase initialized');
 
-// ===== UTILITY FUNCTIONS =====
+// --- פונקציות עזר ---
 
-// Function to show messages to user
 function showMessage(elementId, message, type = 'info') {
     const messageElement = document.getElementById(elementId);
     if (messageElement) {
@@ -42,8 +40,8 @@ function showMessage(elementId, message, type = 'info') {
         messageElement.className = `auth-message ${type}`;
         messageElement.style.display = 'block';
         
-        // Auto-hide after 5 seconds for errors
-        if (type === 'error') {
+        // הסתרת הודעות הצלחה/שגיאה אחרי 5 שניות
+        if (type === 'error' || type === 'success') {
             setTimeout(() => {
                 messageElement.style.display = 'none';
             }, 5000);
@@ -51,85 +49,52 @@ function showMessage(elementId, message, type = 'info') {
     }
 }
 
-// Function to translate Firebase errors to Hebrew
 function getErrorMessage(errorCode) {
     switch (errorCode) {
-        case 'auth/invalid-email':
-            return 'כתובת אימייל לא תקינה';
-        case 'auth/user-not-found':
-        case 'auth/wrong-password':
-        case 'auth/invalid-credential':
-            return 'שם משתמש או סיסמה שגויים';
-        case 'auth/email-already-in-use':
-            return 'האימייל הזה כבר רשום במערכת';
-        case 'auth/weak-password':
-            return 'הסיסמה חייבת להכיל לפחות 6 תווים';
-        case 'auth/too-many-requests':
-            return 'יותר מדי נסיונות התחברות. נסה שנית מאוחר יותר';
-        default:
-            return 'אירעה שגיאה, נסה שנית';
+        case 'auth/invalid-email': return 'כתובת אימייל לא תקינה';
+        case 'auth/user-not-found': return 'לא נמצא משתמש עם האימייל הזה';
+        case 'auth/wrong-password': return 'סיסמה שגויה';
+        case 'auth/invalid-credential': return 'פרטים שגויים';
+        case 'auth/email-already-in-use': return 'האימייל הזה כבר רשום במערכת';
+        case 'auth/weak-password': return 'הסיסמה חייבת להכיל לפחות 6 תווים';
+        case 'auth/too-many-requests': return 'יותר מדי נסיונות. נסה שנית מאוחר יותר';
+        case 'auth/missing-email': return 'נא להקליד כתובת אימייל';
+        default: return 'אירעה שגיאה, נסה שנית';
     }
 }
 
-// ===== ACTION 3: LOGIN FUNCTION =====
+// --- לוגיקה ראשית ---
+
+// התחברות
 window.handleLogin = async function() {
-    console.log('🔐 Login attempt started');
-    
-    // Get input values
     const email = document.getElementById('loginEmail').value.trim();
     const password = document.getElementById('loginPassword').value;
     
-    // Validate inputs
     if (!email || !password) {
         showMessage('login-message', 'אנא מלא את כל השדות', 'error');
         return;
     }
     
-    if (!email.includes('@')) {
-        showMessage('login-message', 'כתובת אימייל לא תקינה', 'error');
-        return;
-    }
-    
     try {
         showMessage('login-message', 'מתחבר...', 'info');
-        
-        // Sign in with Firebase
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
-        
-        console.log('✅ Login successful:', user.email);
-        
-        // Show success message
-        showMessage('login-message', 'התחברות הצליחה! מעביר לפרופיל...', 'success');
-        
-        // Redirect to profile page
-        setTimeout(() => {
-            window.location.href = '../profile.html';
-        }, 1500);
-        
+        await signInWithEmailAndPassword(auth, email, password);
+        showMessage('login-message', 'התחברות הצליחה!', 'success');
+        // הפניה לפרופיל
+        setTimeout(() => { window.location.href = '../profile.html'; }, 1500);
     } catch (error) {
         console.error('❌ Login error:', error.code);
         showMessage('login-message', getErrorMessage(error.code), 'error');
     }
 };
 
-// ===== ACTION 1: SIGN UP FUNCTION =====
+// הרשמה
 window.handleSignUp = async function() {
-    console.log('📝 Sign up attempt started');
-    
-    // Get input values
     const name = document.getElementById('signupName').value.trim();
     const email = document.getElementById('signupEmail').value.trim();
     const password = document.getElementById('signupPassword').value;
     
-    // Validate inputs
     if (!name || !email || !password) {
         showMessage('signup-message', 'אנא מלא את כל השדות', 'error');
-        return;
-    }
-    
-    if (!email.includes('@')) {
-        showMessage('signup-message', 'כתובת אימייל לא תקינה', 'error');
         return;
     }
     
@@ -140,15 +105,10 @@ window.handleSignUp = async function() {
     
     try {
         showMessage('signup-message', 'יוצר חשבון...', 'info');
-        
-        // ACTION 1: Create user with Firebase Auth
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
         
-        console.log('✅ User created:', user.email);
-        
-        // ACTION 2: Save user details to Realtime Database
-        console.log('💾 Saving user data to database...');
+        // שמירת פרטים נוספים (שם) ב-Realtime Database
         await set(ref(database, `users/${user.uid}`), {
             name: name,
             email: email,
@@ -156,15 +116,8 @@ window.handleSignUp = async function() {
             createdAt: new Date().toISOString()
         });
         
-        console.log('✅ User data saved to database');
-        
-        // Show success message
-        showMessage('signup-message', 'הרשמה הצליחה! מעביר לפרופיל...', 'success');
-        
-        // Redirect to profile page
-        setTimeout(() => {
-            window.location.href = '../profile.html';
-        }, 1500);
+        showMessage('signup-message', 'הרשמה הצליחה!', 'success');
+        setTimeout(() => { window.location.href = '../profile.html'; }, 1500);
         
     } catch (error) {
         console.error('❌ Sign up error:', error.code);
@@ -172,4 +125,25 @@ window.handleSignUp = async function() {
     }
 };
 
-console.log('🎉 Auth functions ready: handleLogin, handleSignUp');
+// איפוס סיסמה (שכחתי סיסמה)
+window.handleForgotPassword = async function() {
+    const email = document.getElementById('loginEmail').value.trim();
+    
+    if (!email) {
+        showMessage('login-message', 'כדי לאפס סיסמה, יש לכתוב את האימייל בשדה למעלה וללחוץ שוב על "שכחת סיסמה?"', 'info');
+        // מדגיש את שדה האימייל כדי שהמשתמש יבין איפה לכתוב
+        const emailInput = document.getElementById('loginEmail');
+        emailInput.focus();
+        emailInput.style.borderColor = "#ffc107"; // צהוב להדגשה
+        setTimeout(() => emailInput.style.borderColor = "", 3000); // מחזיר לצבע רגיל
+        return;
+    }
+
+    try {
+        await sendPasswordResetEmail(auth, email);
+        showMessage('login-message', 'נשלח מייל לאיפוס סיסמה! בדוק את תיבת הדואר שלך.', 'success');
+    } catch (error) {
+        console.error('Reset error:', error);
+        showMessage('login-message', getErrorMessage(error.code), 'error');
+    }
+};

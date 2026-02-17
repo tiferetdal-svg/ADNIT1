@@ -8,7 +8,6 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="../css/style.css">
     <link rel="stylesheet" href="login.css">
-    <!-- Firebase SDK -->
     <script type="module" src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"></script>
     <script type="module" src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js"></script>
     <script type="module" src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js"></script>
@@ -19,20 +18,20 @@
       <a class="navbar-brand" href="../index.html">
         <img src="../img/לוגו אדנית שקוף.png" alt="לוגו" style="max-height:80px; width:auto;">
       </a>
-      <button class="navbar-toggler" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasNav">
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
         <span class="navbar-toggler-icon"></span>
       </button>
-      <div class="collapse navbar-collapse">
+      <div class="collapse navbar-collapse" id="mainNav">
         <ul class="navbar-nav ms-auto">
           <li class="nav-item"><a class="nav-link" href="../index.html">בית</a></li>
           <li class="nav-item"><a class="nav-link" href="../about.html">אודות</a></li>
           <li class="nav-item"><a class="nav-link" href="../gallery.html">גלריה</a></li>
           <li class="nav-item"><a class="nav-link" href="../contact.html">צור קשר</a></li>
           <li class="nav-item"><a class="nav-link" href="../personal-area.html">אזור אישי</a></li>
-          <!-- Auth-aware navigation -->
-          <li class="nav-item" id="nav-login"><a class="nav-link active" href="login.html">התחברות</a></li>
-          <li class="nav-item" id="nav-profile" style="display: none;"><a class="nav-link" href="../profile.html">פרופיל</a></li>
-          <li class="nav-item" id="nav-logout" style="display: none;"><a class="nav-link" href="#" onclick="globalLogout()">התנתקות</a></li>
+          
+          <li class="nav-item" id="nav-login" style="display: none;"><a class="nav-link" href="login.html">התחברות</a></li>
+          <li class="nav-item" id="nav-profile"><a class="nav-link active" href="login.html">התחברות</a></li>
+          <li class="nav-item" id="nav-logout"><a class="nav-link" href="#" onclick="globalLogout()">התנתקות</a></li>
         </ul>
       </div>
     </div>
@@ -59,7 +58,6 @@
 
 <div class="auth-container">
     <div class="auth-card">
-      <!-- Tab Buttons -->
       <div class="tab-buttons">
         <button class="tab-btn active" onclick="showTab('login')">
           <i class="fas fa-sign-in-alt me-2"></i>
@@ -71,7 +69,6 @@
         </button>
       </div>
 
-      <!-- Login Form -->
       <div id="login" class="form-container active">
         <form onsubmit="return false;" class="auth-form">
           <div class="form-header">
@@ -95,6 +92,13 @@
               <i class="fas fa-lock"></i>
             </div>
             <input type="password" id="loginPassword" required placeholder="סיסמה">
+            <i class="fas fa-eye password-toggle" onclick="togglePassword('loginPassword', this)"></i>
+          </div>
+          
+          <div class="d-flex justify-content-between align-items-center mb-3">
+              <a href="#" onclick="handleForgotPassword()" class="text-decoration-none small text-success" style="font-weight: 500;">
+                  שכחת סיסמה?
+              </a>
           </div>
           
           <button type="button" class="auth-btn primary" onclick="handleLogin()">
@@ -104,7 +108,6 @@
         </form>
       </div>
 
-      <!-- Sign Up Form -->
       <div id="signup" class="form-container">
         <form onsubmit="return false;" class="auth-form">
           <div class="form-header">
@@ -135,6 +138,7 @@
               <i class="fas fa-lock"></i>
             </div>
             <input type="password" id="signupPassword" required placeholder="סיסמה">
+            <i class="fas fa-eye password-toggle" onclick="togglePassword('signupPassword', this)"></i>
           </div>
           
           <button type="button" class="auth-btn primary" onclick="handleSignUp()">
@@ -153,28 +157,37 @@
         </div>
     </div>
 
-    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="../js/script.js"></script>
     <script type="module" src="auth.js"></script>
+    <script type="module" src="navbar-auth.js"></script>
+    
     <script>
-        // Function to switch between Login and Sign Up tabs
+        // פונקציה למעבר בין טאבים
         function showTab(tabName) {
-            // Hide all forms
             document.querySelectorAll('.form-container').forEach(form => {
                 form.classList.remove('active');
             });
-            
-            // Remove active class from all buttons
             document.querySelectorAll('.tab-btn').forEach(btn => {
                 btn.classList.remove('active');
             });
-            
-            // Show selected form and activate button
             document.getElementById(tabName).classList.add('active');
             event.target.classList.add('active');
         }
+
+        // פונקציה לחשיפת/הסתרת סיסמה
+        function togglePassword(inputId, iconElement) {
+            const input = document.getElementById(inputId);
+            if (input.type === "password") {
+                input.type = "text";
+                iconElement.classList.remove('fa-eye');
+                iconElement.classList.add('fa-eye-slash');
+            } else {
+                input.type = "password";
+                iconElement.classList.remove('fa-eye-slash');
+                iconElement.classList.add('fa-eye');
+            }
+        }
     </script>
-    <script type="module" src="navbar-auth.js"></script>
 </body>
 </html>
